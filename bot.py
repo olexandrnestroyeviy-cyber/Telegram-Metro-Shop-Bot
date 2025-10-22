@@ -23,12 +23,25 @@ from db import AsyncSessionLocal, Item, User, CartItem, create_db, ASYNC_ENGINE
 TOKEN = "8203607429:AAFyudKK3pCEPXu4SmC-Px7I5wmMCTSohw4" 
 ADMIN_ID = 7249241490 # Ваш Telegram ID
 CURRENCY = " грн" 
-COOLDOWN_HOURS = 6 
+# COOLDOWN_HOURS = 6 # ВИДАЛЕНО: Більше не потрібна константа для гри
 
 logging.basicConfig(level=logging.INFO)
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
 # ----------------------------------------------
+
+# --- ДАНІ ДЛЯ НОВОЇ ФУНКЦІЇ ---
+JOKES = [
+    "Мені не потрібна терапія. Мені потрібна відпустка... Або код, який працює з першого разу.",
+    "Що сказав нуль вісімці? – Класний пасок!",
+    "Чому програмісти постійно плутають Різдво та Хелловін? Бо $DEC 25$ дорівнює $OCT 31$.",
+    "Який найулюбленіший алкогольний напій програміста? Ром (ROM).",
+    "На скільки потрібно знати англійську, щоб бути програмістом? На $4-8$ Гб.",
+    "Після запуску, бот сказав: 'Я працюю!' – І це була його остання помилка.",
+    "Найпопулярніша річ у роботі: перевіряти, чи правильно ти вимкнув мікрофон на мітингу.",
+    "Купив собі бездротову мишку... забув, що вона на батарейках. Все одно провідна вийшла.",
+    "Приходить програміст додому, дружина йому каже: 'Сходи в магазин, купи ковбаси. Якщо будуть яйця, купи десяток'. Він повертається з десятьма ковбасами. – А чому так багато? – Яйця були.",
+]
 
 # --- ДОПОМІЖНА ФУНКЦІЯ ---
 def escape_markdown(text: str) -> str:
@@ -49,12 +62,12 @@ class Checkout(StatesGroup):
 
 # --- СТВОРЕННЯ REPLY-КЛАВІАТУР ---
 
-# ... (Код клавіатур залишається без змін)
 def get_reply_keyboard(is_admin: bool = False):
     """Створює Reply-клавіатуру для головного меню."""
     kb = [
         [types.KeyboardButton(text="🛒 Каталог Товарів"), types.KeyboardButton(text="🛍️ Мій Кошик")],
-        [types.KeyboardButton(text="🔦 Знайди Артефакт"), types.KeyboardButton(text="⚙️ Зв'язок з Адміном")]
+        # ЗМІНА: Кнопку "🔦 Знайди Артефакт" замінено на "😂 Рандомний Мем"
+        [types.KeyboardButton(text="😂 Рандомний Мем"), types.KeyboardButton(text="⚙️ Зв'язок з Адміном")]
     ]
     if is_admin:
         kb.append([types.KeyboardButton(text="/additem")])
@@ -86,6 +99,7 @@ async def cmd_start_or_menu(message: types.Message, state: FSMContext):
         is_admin = message.from_user.id == ADMIN_ID
         
         if not user:
+            # ЗМІНА: У моделі User відсутнє поле last_game_time, тому воно тут не використовується
             new_user = User(
                 telegram_id=message.from_user.id, 
                 username=message.from_user.username or 'N/A'
@@ -127,90 +141,20 @@ async def handle_contact_button(message: types.Message):
     await contact_admin_message(message)
 
 # ----------------------------------------------------------------------
-#                           ✨ НОВА ФУНКЦІЯ: ЗНАЙДИ АРТЕФАКТ! ✨
+#                           😂 НОВА ФУНКЦІЯ: РАНДОМНИЙ МЕМ! 😂
 # ----------------------------------------------------------------------
 
-@dp.message(Text("🔦 Знайди Артефакт"))
-async def find_artifact_game(message: types.Message):
-    user_tg_id = message.from_user.id
+@dp.message(Text("😂 Рандомний Мем"))
+async def send_random_joke(message: types.Message):
+    """Надсилає випадковий текст-жарт зі списку JOKES."""
+    # Вибираємо випадковий жарт
+    random_joke = random.choice(JOKES)
     
-    async with AsyncSessionLocal() as session:
-        result = await session.execute(select(User).filter_by(telegram_id=user_tg_id))
-        user = result.scalars().first()
-        
-        if not user:
-            await message.answer("Помилка користувача. Спробуйте /start.")
-            return
-
-        # Перевірка перезарядки
-        if user.last_game_time:
-            last_game_dt = datetime.fromisoformat(user.last_game_time)
-        else:
-            last_game_dt = None
-
-        if last_game_dt and datetime.now() < last_game_dt + timedelta(hours=COOLDOWN_HOURS):
-            next_try_time = last_game_dt + timedelta(hours=COOLDOWN_HOURS)
-            wait_time = next_try_time - datetime.now()
-            
-            hours = int(wait_time.total_seconds() // 3600)
-            minutes = int((wait_time.total_seconds() % 3600) // 60)
-            
-            await message.answer(
-                f"❌ **Пошук артефактів ще не перезарядився\\!**\n"
-                f"Залишилося: **{hours} год\\. {minutes} хв\\.**\n"
-                f"Спробуйте знову після {next_try_time.strftime('%H:%M')} \\.",
-                parse_mode="MarkdownV2"
-            )
-            return
-
-        # 1. Пошук доступних предметів
-        items_result = await session.execute(select(Item).filter(Item.is_available == True))
-        available_items = items_result.scalars().all()
-        
-        if not available_items:
-            await message.answer("Схоже, всі артефакти вже розібрані, або каталог порожній\\. Приходьте пізніше\\.")
-            return
-
-        # 2. Вибір випадкового предмета (Шанс 1 до 5)
-        win_chance = 1
-        current_time_iso = datetime.now().isoformat()
-        
-        if random.randint(1, 5) <= win_chance:
-            # Перемога!
-            won_item = random.choice(available_items)
-            
-            # Додавання товару в кошик (кількість 1)
-            cart_result = await session.execute(select(CartItem).filter(
-                CartItem.user_id == user_tg_id, 
-                CartItem.item_id == won_item.id
-            ))
-            cart_item = cart_result.scalars().first()
-
-            if cart_item:
-                cart_item.quantity += 1
-            else:
-                new_cart_item = CartItem(
-                    user_id=user_tg_id,
-                    item_id=won_item.id,
-                    quantity=1
-                )
-                session.add(new_cart_item)
-                
-            win_message = (
-                f"🎉 **УСПІХ\\! Ви знайшли артефакт\\!** 🎉\n"
-                f"Ви натрапили на рідкісне спорядження: **{escape_markdown(won_item.name)}**\\.\n"
-                f"Він був автоматично доданий до вашого кошика \\(`x{cart_item.quantity if cart_item else 1}`\\)\\!"
-            )
-        else:
-            # Програш
-            win_message = "😔 **На жаль, цього разу ви не знайшли нічого цінного\\.**\nПроте, ви почули дивні звуки... можливо, вам пощастить наступного разу\\!"
-
-        # 3. Оновлення часу останньої гри
-        stmt = update(User).where(User.telegram_id == user_tg_id).values(last_game_time=current_time_iso)
-        await session.execute(stmt)
-        await session.commit()
-    
-    await message.answer(win_message, parse_mode="MarkdownV2")
+    await message.answer(
+        f"😂 **Ваш рандомний мем \\(програмістський\\):**\n"
+        f"_{escape_markdown(random_joke)}_",
+        parse_mode="MarkdownV2"
+    )
 
 # ----------------------------------------------------------------------
 #                           АДМІН-ПАНЕЛЬ та КАТАЛОГ
