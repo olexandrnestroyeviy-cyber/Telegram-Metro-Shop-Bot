@@ -1,12 +1,9 @@
 # requirements.txt
-# Telegram Bot Framework (aiogram 3.x)
+# Головний фреймворк для Telegram-бота (aiogram 3.x)
 aiogram>=3.3.0
 
-# ORM & SQL Toolkit (SQLAlchemy 2.x)
+# ORM & SQL Toolkit (SQLAlchemy 2.x для асинхронної роботи)
 SQLAlchemy>=2.0.44
 
-# Асинхронний драйвер для SQLite (якщо ви використовуєте sqlite+aiosqlite:///)
+# Асинхронний драйвер для SQLite (потрібен для використання 'sqlite+aiosqlite:///')
 aiosqlite>=0.20.0
-
-# Якщо ви використовуєте PostgreSQL, замініть aiosqlite на asyncpg
-# asyncpg>=0.29.0
