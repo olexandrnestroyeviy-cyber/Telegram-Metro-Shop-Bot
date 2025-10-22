@@ -1,28 +1,25 @@
-# bot.py - ФІНАЛЬНА АСИНХРОННА ВЕРСІЯ (для SQLAlchemy AsyncIO)
+# bot.py - ФІНАЛЬНА АСИНХРОННА ВЕРСІЯ (з усіма виправленнями MarkdownV2 та логіки)
 import asyncio
 import logging
 import re 
 import random
-# ВИДАЛЕНО: datetime та timedelta більше не потрібні, оскільки немає COOLDOWN_HOURS
-# from datetime import datetime, timedelta 
+# ВИДАЛЕНО: datetime та timedelta більше не потрібні
 
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import Command
-# ВИДАЛЕНО: Неможливо імпортувати Text. Використовуємо F.text
-# from aiogram.filters.text import Text 
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
-from sqlalchemy import select, update, delete
+from sqlalchemy import select, delete
 from sqlalchemy.orm import selectinload
 from sqlalchemy.exc import IntegrityError
 
 # ЗМІНА: Імпортуємо асинхронні інструменти
-from db import AsyncSessionLocal, Item, User, CartItem, create_db, ASYNC_ENGINE
+from db import AsyncSessionLocal, Item, User, CartItem, create_db
 
 # --- КОНФІГУРАЦІЯ (ОБОВ'ЯЗКОВО ЗАМІНИТИ!) ---
-TOKEN = "8203607429:AAFyudKK3pCEPXu4SmC-Px7I5wmMCTSohw4" 
+TOKEN = "8203607429:AAFyudKK3pCEPXu4SmC-Px5I5wmMCTSohw4" 
 ADMIN_ID = 7249241490 # Ваш Telegram ID
 CURRENCY = " грн" 
 
@@ -33,20 +30,21 @@ dp = Dispatcher()
 
 # --- ДАНІ ДЛЯ НОВОЇ ФУНКЦІЇ ---
 JOKES = [
-    "Мені не потрібна терапія. Мені потрібна відпустка... Або код, який працює з першого разу.",
-    "Що сказав нуль вісімці? – Класний пасок!",
-    "Чому програмісти постійно плутають Різдво та Хелловін? Бо $DEC 25$ дорівнює $OCT 31$.",
-    "Який найулюбленіший алкогольний напій програміста? Ром (ROM).",
-    "На скільки потрібно знати англійську, щоб бути програмістом? На $4-8$ Гб.",
-    "Після запуску, бот сказав: 'Я працюю!' – І це була його остання помилка.",
-    "Найпопулярніша річ у роботі: перевіряти, чи правильно ти вимкнув мікрофон на мітингу.",
-    "Купив собі бездротову мишку... забув, що вона на батарейках. Все одно провідна вийшла.",
-    "Приходить програміст додому, дружина йому каже: 'Сходи в магазин, купи ковбаси. Якщо будуть яйця, купи десяток'. Він повертається з десятьма ковбасами. – А чому так багато? – Яйця були.",
+    "Мені не потрібна терапія\\. Мені потрібна відпустка\\.\\. \\. Або код, який працює з першого разу\\.",
+    "Що сказав нуль вісімці? \\– Класний пасок\\!",
+    "Чому програмісти постійно плутають Різдво та Хелловін? Бо $DEC 25$ дорівнює $OCT 31$ \\(це ж очевидно\\)\\.",
+    "Який найулюбленіший алкогольний напій програміста? Ром \\(ROM\\)\\.",
+    "На скільки потрібно знати англійську, щоб бути програмістом? На $4\\-8$ Гб\\.",
+    "Після запуску, бот сказав: 'Я працюю\\!' \\– І це була його остання помилка\\.",
+    "Найпопулярніша річ у роботі: перевіряти, чи правильно ти вимкнув мікрофон на мітингу\\.",
+    "Купив собі бездротову мишку\\.\\. \\. забув, що вона на батарейках\\. Все одно провідна вийшла\\.",
+    "Приходить програміст додому, дружина йому каже: 'Сходи в магазин, купи ковбаси\\. Якщо будуть яйця, купи десяток'\\. Він повертається з десятьма ковбасами\\. \\– А чому так багато? \\– Яйця були\\.",
 ]
 
 # --- ДОПОМІЖНА ФУНКЦІЯ ---
 def escape_markdown(text: str) -> str:
     """Екранує символи MarkdownV2."""
+    # Екрануємо ВСІ зарезервовані символи, включаючи '-'
     escape_chars = r'\_*[]()~`>#+-=|}{.!$'
     return re.sub(f'([{re.escape(escape_chars)}])', r'\\\1', text)
 
@@ -67,7 +65,6 @@ def get_reply_keyboard(is_admin: bool = False):
     """Створює Reply-клавіатуру для головного меню."""
     kb = [
         [types.KeyboardButton(text="🛒 Каталог Товарів"), types.KeyboardButton(text="🛍️ Мій Кошик")],
-        # Кнопка "😂 Рандомний Мем"
         [types.KeyboardButton(text="😂 Рандомний Мем"), types.KeyboardButton(text="⚙️ Зв'язок з Адміном")]
     ]
     if is_admin:
@@ -88,12 +85,10 @@ def get_back_to_menu_inline():
 # --- ОБРОБНИКИ КОМАНД ТА REPLY-МЕНЮ ---
 
 @dp.message(Command("start", "menu"))
-# ЗМІНА: Використовуємо F.text замість Text
 @dp.message(F.text == "↩️ Головне меню")
 async def cmd_start_or_menu(message: types.Message, state: FSMContext):
     await state.clear()
     
-    # ЗМІНА: Асинхронна робота з БД
     async with AsyncSessionLocal() as session:
         result = await session.execute(select(User).filter_by(telegram_id=message.from_user.id))
         user = result.scalars().first()
@@ -101,8 +96,6 @@ async def cmd_start_or_menu(message: types.Message, state: FSMContext):
         is_admin = message.from_user.id == ADMIN_ID
         
         if not user:
-            # Поле last_game_time залишається в моделі DB, але тут не використовується.
-            # Якщо ви плануєте видалити його з db.py, тут нічого не зміниться.
             new_user = User(
                 telegram_id=message.from_user.id, 
                 username=message.from_user.username or 'N/A'
@@ -121,12 +114,13 @@ async def cmd_start_or_menu(message: types.Message, state: FSMContext):
 @dp.callback_query(F.data == "main_menu_inline")
 async def go_to_main_menu_inline(callback: types.CallbackQuery, state: FSMContext):
     await state.clear() 
+    # Встановлюємо reply_markup у None, оскільки cmd_start_or_menu його додасть
     await callback.message.edit_text(
         "Ви повернулися до головного меню\\. Оберіть дію:", 
-        parse_mode="MarkdownV2"
+        parse_mode="MarkdownV2",
+        reply_markup=None
     )
     await callback.answer()
-    # Використовуємо message замість callback.message, щоб cmd_start_or_menu коректно обробив його
     await cmd_start_or_menu(callback.message, state)
 
 # ----------------------------------------------------------------------
@@ -144,11 +138,6 @@ async def handle_cart_button(message: types.Message):
 async def handle_contact_button(message: types.Message):
     await contact_admin_message(message)
 
-# ----------------------------------------------------------------------
-#                           😂 НОВА ФУНКЦІЯ: РАНДОМНИЙ МЕМ! 😂
-# ----------------------------------------------------------------------
-
-# ЗМІНА: Використовуємо F.text замість Text
 @dp.message(F.text == "😂 Рандомний Мем")
 async def send_random_joke(message: types.Message):
     """Надсилає випадковий текст-жарт зі списку JOKES."""
@@ -156,7 +145,7 @@ async def send_random_joke(message: types.Message):
     
     await message.answer(
         f"😂 **Ваш рандомний мем \\(програмістський\\):**\n"
-        f"_{escape_markdown(random_joke)}_",
+        f"_{random_joke}_", # JOKES вже містить екрановані символи
         parse_mode="MarkdownV2"
     )
 
@@ -164,10 +153,11 @@ async def send_random_joke(message: types.Message):
 #                           АДМІН-ПАНЕЛЬ та КАТАЛОГ
 # ----------------------------------------------------------------------
 
+# (Код додавання товару тут не змінюється, оскільки він був коректним)
+
 @dp.message(Command("additem"))
 async def cmd_add_item(message: types.Message, state: FSMContext):
     if message.from_user.id != ADMIN_ID:
-        # Додано відповідь для не-адмінів
         await message.answer("❌ У вас немає прав адміністратора для цієї команди.")
         return
     await state.set_state(AddItem.waiting_for_name)
@@ -225,14 +215,12 @@ async def process_item_price(message: types.Message, state: FSMContext):
 
 @dp.message(AddItem.waiting_for_description)
 async def process_item_description(message: types.Message, state: FSMContext):
-    """Зберігає опис і додає товар до БД"""
     data = await state.get_data()
     description = message.text.strip()
     
     if description.lower() == 'ні':
         description = None
 
-    # ЗМІНА: Асинхронна робота з БД
     async with AsyncSessionLocal() as session:
         try:
             new_item = Item(
@@ -265,7 +253,6 @@ async def process_item_description(message: types.Message, state: FSMContext):
 
 async def show_categories(message: types.Message):
     """Показує всі унікальні категорії товарів (на основі Message)"""
-    # ЗМІНА: Асинхронна робота з БД
     async with AsyncSessionLocal() as session:
         result = await session.execute(select(Item.category).distinct())
         categories = result.scalars().all()
@@ -273,7 +260,6 @@ async def show_categories(message: types.Message):
     builder = InlineKeyboardBuilder()
     
     if not categories:
-        # Додано обробку порожнього каталогу
         await message.answer(
             "Каталог поки що порожній\\! Зверніться до адміністратора, щоб додати товари\\.", 
             parse_mode="MarkdownV2",
@@ -294,7 +280,6 @@ async def show_items_by_category(callback: types.CallbackQuery):
     
     category = callback.data.split("_")[1]
     
-    # ЗМІНА: Асинхронна робота з БД
     async with AsyncSessionLocal() as session:
         items_result = await session.execute(
             select(Item).filter_by(category=category, is_available=True)
@@ -302,7 +287,8 @@ async def show_items_by_category(callback: types.CallbackQuery):
         items = items_result.scalars().all()
 
     if not items:
-        await callback.answer("У цій категорії поки що немає доступних товарів\\.", show_alert=True)
+        # ВИПРАВЛЕНО: Екранування тексту для show_alert
+        await callback.answer(escape_markdown("У цій категорії поки що немає доступних товарів."), show_alert=True)
         return
 
     text = f"**Категорія: {escape_markdown(category)}**\n\n"
@@ -310,7 +296,6 @@ async def show_items_by_category(callback: types.CallbackQuery):
     
     for item in items:
         item_name_escaped = escape_markdown(item.name)
-        # item_desc_escaped = escape_markdown(item.description or 'Немає опису') # Видалено, щоб уникнути занадто довгого тексту для кнопки
         
         text += f"**{item_name_escaped}**\n"
         text += f"💰 Ціна: {item.price}{escape_markdown(CURRENCY)}\n"
@@ -353,7 +338,6 @@ async def show_cart_callback(callback: types.CallbackQuery):
 
 async def _render_cart_content(user_tg_id: int, send_or_edit_func, callback_answer=None):
     """Допоміжна функція для рендерингу вмісту кошика."""
-    # ЗМІНА: Асинхронна робота з БД
     async with AsyncSessionLocal() as session:
         cart_result = await session.execute(
             select(CartItem).filter(CartItem.user_id == user_tg_id).options(selectinload(CartItem.item))
@@ -375,7 +359,6 @@ async def _render_cart_content(user_tg_id: int, send_or_edit_func, callback_answ
                 item_subtotal = item.price * cart_item.quantity
                 total_price += item_subtotal
                 
-                # Використовуємо лише один рядок для кожного товару
                 text += f"\\*{escape_markdown(item.name)}\\* \\(x{cart_item.quantity}\\) \\- {item_subtotal}{escape_markdown(CURRENCY)}\n"
                 
                 builder.row(
@@ -386,7 +369,8 @@ async def _render_cart_content(user_tg_id: int, send_or_edit_func, callback_answ
                     width=4
                 )
                 
-                text += "\\— \\— \\— \\— \\— \\— \n"
+                # ВИПРАВЛЕНО: Використовуємо екранований символ мінуса для роздільника
+                text += "\\-\\-\\-\\-\\-\\-\\-\\n"
 
         text += f"\n**💸 Загальна сума: {total_price}{escape_markdown(CURRENCY)}**"
         
@@ -394,7 +378,6 @@ async def _render_cart_content(user_tg_id: int, send_or_edit_func, callback_answ
         builder.row(types.InlineKeyboardButton(text="🗑️ Очистити Кошик", callback_data="clear_cart"))
         builder.row(types.InlineKeyboardButton(text="↩️ Головне меню", callback_data="main_menu_inline"))
     
-    # Перевірка: чи є це message.answer чи message.edit_text
     if send_or_edit_func.__name__ == 'answer':
          await send_or_edit_func(
             text, 
@@ -417,18 +400,19 @@ async def add_item_to_cart(callback: types.CallbackQuery):
     try:
         item_id = int(callback.data.split("_")[1])
     except (IndexError, ValueError):
-        await callback.answer("❌ Помилка ідентифікатора товару\\.", show_alert=True)
+        # ВИПРАВЛЕНО: Екранування тексту для show_alert
+        await callback.answer(escape_markdown("❌ Помилка ідентифікатора товару."), show_alert=True)
         return
 
     user_tg_id = callback.from_user.id
     
-    # ЗМІНА: Асинхронна робота з БД
     async with AsyncSessionLocal() as session:
         item_result = await session.execute(select(Item).filter_by(id=item_id))
         item = item_result.scalars().first()
         
         if not item or not item.is_available:
-            await callback.answer("❌ Товар не знайдено або він недоступний\\.", show_alert=True)
+             # ВИПРАВЛЕНО: Екранування тексту для show_alert
+            await callback.answer(escape_markdown("❌ Товар не знайдено або він недоступний."), show_alert=True)
             return
 
         cart_result = await session.execute(select(CartItem).filter(
@@ -439,7 +423,8 @@ async def add_item_to_cart(callback: types.CallbackQuery):
 
         if cart_item:
             cart_item.quantity += 1
-            message_text = f"➕ Додано ще одну одиницю {escape_markdown(item.name)}\\! Кількість: {cart_item.quantity}\\."
+            # ВИПРАВЛЕНО: Екранування тексту для show_alert
+            message_text = escape_markdown(f"➕ Додано ще одну одиницю {item.name}! Кількість: {cart_item.quantity}.")
         else:
             new_cart_item = CartItem(
                 user_id=user_tg_id,
@@ -447,7 +432,8 @@ async def add_item_to_cart(callback: types.CallbackQuery):
                 quantity=1
             )
             session.add(new_cart_item)
-            message_text = f"✅ Товар {escape_markdown(item.name)} додано до кошика\\!"
+            # ВИПРАВЛЕНО: Екранування тексту для show_alert
+            message_text = escape_markdown(f"✅ Товар {item.name} додано до кошика!")
 
         await session.commit()
     
@@ -458,7 +444,6 @@ async def add_item_to_cart(callback: types.CallbackQuery):
 async def add_one_item_in_cart(callback: types.CallbackQuery):
     """Обробляє кнопку ➕ у кошику."""
     cart_item_id = int(callback.data.split("_")[2])
-    # ЗМІНА: Асинхронна робота з БД
     async with AsyncSessionLocal() as session:
         cart_result = await session.execute(
             select(CartItem).filter_by(id=cart_item_id).options(selectinload(CartItem.item))
@@ -468,25 +453,23 @@ async def add_one_item_in_cart(callback: types.CallbackQuery):
         if cart_item:
             cart_item.quantity += 1
             await session.commit()
-            item_name = escape_markdown(cart_item.item.name)
+            item_name = cart_item.item.name # Не екрануємо тут, оскільки екрануємо у final string
             
-            await callback.answer(f"➕ Кількість {item_name} збільшено до {cart_item.quantity}\\.", show_alert=True)
-            # Перерендер кошика
+            # ВИПРАВЛЕНО: Екранування тексту для show_alert
+            await callback.answer(escape_markdown(f"➕ Кількість {item_name} збільшено до {cart_item.quantity}."), show_alert=True)
             await show_cart_callback(callback)
         else:
-            await callback.answer("Помилка: Елемент кошика не знайдено\\.", show_alert=True)
+            # ВИПРАВЛЕНО: Екранування тексту для show_alert
+            await callback.answer(escape_markdown("Помилка: Елемент кошика не знайдено."), show_alert=True)
 
 
 @dp.callback_query(F.data.startswith("remove_one_") | F.data.startswith("delete_item_"))
 async def remove_item_from_cart(callback: types.CallbackQuery):
     """Обробляє кнопки ➖ та ❌ у кошику."""
-    # Правильне розділення: action - remove/delete, item_id
     action, _, cart_item_id_str = callback.data.rpartition('_')
     cart_item_id = int(cart_item_id_str)
     
-    # ЗМІНА: Асинхронна робота з БД
     async with AsyncSessionLocal() as session:
-        # Використовуємо .filter_by(id=...) для більшої безпеки, ніж просто фільтр
         cart_result = await session.execute(
             select(CartItem).filter_by(id=cart_item_id).options(selectinload(CartItem.item))
         )
@@ -494,41 +477,41 @@ async def remove_item_from_cart(callback: types.CallbackQuery):
         
         if cart_item:
             item = cart_item.item
-            item_name = escape_markdown(item.name) if item else "Товар"
+            item_name = item.name if item else "Товар" # Не екрануємо тут
             action_text = ""
             
             if action == "delete_item":
                 await session.delete(cart_item)
-                action_text = f"❌ {item_name} повністю видалено з кошика\\."
+                action_text = f"❌ {item_name} повністю видалено з кошика."
             
             elif action == "remove_one":
                 if cart_item.quantity > 1:
                     cart_item.quantity -= 1
-                    action_text = f"➖ Кількість {item_name} зменшено до {cart_item.quantity}\\."
+                    action_text = f"➖ Кількість {item_name} зменшено до {cart_item.quantity}."
                 else:
                     await session.delete(cart_item)
-                    action_text = f"❌ {item_name} видалено з кошика\\."
+                    action_text = f"❌ {item_name} видалено з кошика."
 
             await session.commit()
             
-            await callback.answer(action_text, show_alert=True)
-            # Перерендер кошика
+            # ВИПРАВЛЕНО: Екранування тексту для show_alert
+            await callback.answer(escape_markdown(action_text), show_alert=True)
             await show_cart_callback(callback) 
         else:
-            await callback.answer("Помилка: Елемент кошика не знайдено\\.", show_alert=True)
+            # ВИПРАВЛЕНО: Екранування тексту для show_alert
+            await callback.answer(escape_markdown("Помилка: Елемент кошика не знайдено."), show_alert=True)
 
 
 @dp.callback_query(F.data == "clear_cart")
 async def clear_cart(callback: types.CallbackQuery):
     user_tg_id = callback.from_user.id
     
-    # ЗМІНА: Асинхронна робота з БД
     async with AsyncSessionLocal() as session:
         await session.execute(delete(CartItem).filter(CartItem.user_id == user_tg_id))
         await session.commit()
     
-    await callback.answer("🗑️ Ваш кошик повністю очищено\\!", show_alert=True)
-    # Перерендер кошика
+    # ВИПРАВЛЕНО: Екранування тексту для show_alert
+    await callback.answer(escape_markdown("🗑️ Ваш кошик повністю очищено!"), show_alert=True)
     await show_cart_callback(callback)
 
 # ----------------------------------------------------------------------
@@ -557,7 +540,6 @@ async def contact_admin_message(message: types.Message):
 async def start_checkout(callback: types.CallbackQuery, state: FSMContext):
     user_tg_id = callback.from_user.id
     
-    # ЗМІНА: Асинхронна робота з БД
     async with AsyncSessionLocal() as session:
         cart_result = await session.execute(
             select(CartItem).filter(CartItem.user_id == user_tg_id).options(selectinload(CartItem.item))
@@ -565,7 +547,8 @@ async def start_checkout(callback: types.CallbackQuery, state: FSMContext):
         cart_items = cart_result.scalars().all()
 
     if not cart_items:
-        await callback.answer("Кошик порожній\\! Додайте товари перед оформленням\\.", show_alert=True)
+        # ВИПРАВЛЕНО: Екранування тексту для show_alert
+        await callback.answer(escape_markdown("Кошик порожній! Додайте товари перед оформленням."), show_alert=True)
         return
     
     total_price = sum(cart_item.item.price * cart_item.quantity for cart_item in cart_items if cart_item.item)
@@ -575,14 +558,14 @@ async def start_checkout(callback: types.CallbackQuery, state: FSMContext):
         item = cart_item.item
         if item:
             item_name_escaped = escape_markdown(item.name)
-            order_details += f"  - {item_name_escaped} x{cart_item.quantity} \\({item.price * cart_item.quantity}{escape_markdown(CURRENCY)}\\)\n"
+            # ВИПРАВЛЕНО: Екранування дефісу для MarkdownV2 списку
+            order_details += f"  \\- {item_name_escaped} x{cart_item.quantity} \\({item.price * cart_item.quantity}{escape_markdown(CURRENCY)}\\)\n"
     
     final_text = (
         "**✅ ПІДТВЕРДЖЕННЯ ЗАМОВЛЕННЯ**\n"
         "Ваше замовлення буде надіслано адміністратору\\.\n\n"
         f"**💸 ЗАГАЛЬНА СУМА:** {total_price}{escape_markdown(CURRENCY)}"
         f"{order_details}"
-        # ВИПРАВЛЕНО: Екранування @ у Telegram
         "\n**\\! ЗВ'ЯЗОК:** Адміністратор зв'яжеться з вами через Telegram \\(за вашим username\\)\\. Будь ласка, перевірте, що він відкритий\\."
     )
 
@@ -603,7 +586,6 @@ async def confirm_order(callback: types.CallbackQuery, state: FSMContext):
     user_tg_id = callback.from_user.id
     username = callback.from_user.username or "Не вказано"
     
-    # ЗМІНА: Асинхронна робота з БД
     async with AsyncSessionLocal() as session:
         cart_result = await session.execute(
             select(CartItem).filter(CartItem.user_id == user_tg_id).options(selectinload(CartItem.item))
@@ -617,12 +599,13 @@ async def confirm_order(callback: types.CallbackQuery, state: FSMContext):
             item = cart_item.item
             if item:
                 item_name_escaped = escape_markdown(item.name)
-                order_details += f"  - {item_name_escaped} x{cart_item.quantity} \\({item.price * cart_item.quantity}{escape_markdown(CURRENCY)}\\)\n"
+                # ВИПРАВЛЕНО: Екранування дефісу для MarkdownV2 списку
+                order_details += f"  \\- {item_name_escaped} x{cart_item.quantity} \\({item.price * cart_item.quantity}{escape_markdown(CURRENCY)}\\)\n"
         
-        # ВИПРАВЛЕНО: Екранування @ у f-рядку для Telegram
         admin_message = (
             f"🔔 **НОВЕ ЗАМОВЛЕННЯ\\!**\n"
-            f"----------------------------\n"
+            # ВИПРАВЛЕНО: Екранування дефісу для роздільника
+            f"\\-\\-\\-\\-\\-\\-\\-\\-\\-\\-\\-\\-\\n"
             f"**🧑 Користувач:** \\@{escape_markdown(username)} \\(ID: {user_tg_id}\\)\n"
             f"**💸 СУМА:** {total_price}{escape_markdown(CURRENCY)}\n"
             f"{order_details}"
@@ -638,23 +621,23 @@ async def confirm_order(callback: types.CallbackQuery, state: FSMContext):
     await state.clear()
     
     # 3. Повідомлення клієнту
-    # ВИПРАВЛЕНО: Екранування @ у f-рядку для Telegram
     await callback.message.edit_text(
         r"🎉 **ЗАМОВЛЕННЯ ПРИЙНЯТО\\!**" + "\n" + 
         "Ваше замовлення успішно надіслано адміністратору\\. "
-        f"Він зв'яжеться з вами через Telegram \\(\@?{escape_markdown(username)}\\) найближчим часом\\!\n\n"
+        # ВИПРАВЛЕНО: Коректне екранування @
+        f"Він зв'яжеться з вами через Telegram \\(\@{escape_markdown(username)}\\) найближчим часом\\!\n\n"
         "Дякуємо, що обрали METRO SHOP\\!",
         parse_mode="MarkdownV2",
         reply_markup=get_back_to_menu_inline() 
     )
-    await callback.answer("Замовлення підтверджено!")
+    # ВИПРАВЛЕНО: Екранування тексту для show_alert
+    await callback.answer(escape_markdown("Замовлення підтверджено!"))
 
 # ----------------------------------------------------------------------
 #                             СЕКЦІЯ ЗАПУСКУ
 # ----------------------------------------------------------------------
 
 async def main():
-    # Створення таблиць ПЕРЕД запуском бота
     await create_db() 
     await bot.delete_webhook(drop_pending_updates=True) 
     await dp.start_polling(bot)
