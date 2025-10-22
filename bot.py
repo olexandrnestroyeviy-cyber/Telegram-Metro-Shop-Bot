@@ -16,7 +16,7 @@ from sqlalchemy.exc import IntegrityError
 from db import Session, Item, User, CartItem 
 
 # --- КОНФІГУРАЦІЯ (ОБОВ'ЯЗКОВО ЗАМІНИТИ!) ---
-TOKEN = "8203607429:AAHKBIUubmldST188Ejtcl5zpth2WVEKmsc" 
+TOKEN = "8259784737:AAGki5LfnaxHfMppMiN8M4Niw8HPeOOSAS4" 
 ADMIN_ID = 7249241490 # Ваш Telegram ID
 CURRENCY = " грн" 
 
