@@ -582,7 +582,7 @@ async def confirm_order(callback: types.CallbackQuery, state: FSMContext):
     admin_message = (
         f"🔔 **НОВЕ ЗАМОВЛЕННЯ\!**\n"
         f"----------------------------\n"
-        f"**🧑 Користувач:** \@{escape_markdown(username)} \(ID: {user_tg_id}\)\n" 
+        f"**🧑 Користувач:** \@{escape_markdown(username)} \\(ID: {user_tg_id}\\)\n"
         f"**💸 СУМА:** {total_price}{escape_markdown(CURRENCY)}\n"
         f"{order_details}"
     )
